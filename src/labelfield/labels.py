@@ -29,23 +29,20 @@ def _as_torch(logits) -> torch.Tensor:
     return torch.from_numpy(np.ascontiguousarray(logits))
 
 
-def kernel_lut(lut, *, mode: str, paint: bool, transparent: str) -> np.ndarray:
-    """The label table the backends read: ``lut`` with every transparent channel set to -1.
+def transparency_mask(lut, *, transparent: str = "background") -> np.ndarray:
+    """Which channels an argmax paint leaves untouched: a uint8 per channel, 1 = transparent.
 
-    Only an argmax paint has transparent channels; every other call gets ``lut`` unchanged, so
-    no negative entry ever reaches a write. ``"background"`` makes channel 0 transparent (the
-    decision is background); ``"zero"`` makes every channel whose label is 0 transparent, which
-    is TotalSegmentator's compositor - ``np.copyto(out, lut[seg], where=lut[seg] != 0)``.
+    ``"background"`` makes channel 0 transparent (the decision is background); ``"zero"`` makes
+    every channel whose label is 0 transparent, which is TotalSegmentator's compositor -
+    ``np.copyto(out, lut[seg], where=lut[seg] != 0)``. The backends read it beside the label
+    table, which stays the labels as given.
     """
     lut = np.asarray(lut, dtype=np.int64).reshape(-1)
-    if not (paint and mode == "argmax"):
-        return lut.astype(np.int32)
-    k = lut.astype(np.int32)
     if transparent == "background":
-        k[0] = -1
-    else:
-        k[lut == 0] = -1
-    return k
+        mask = np.zeros(lut.shape[0], dtype=np.uint8)
+        mask[0] = 1
+        return mask
+    return (lut == 0).astype(np.uint8)
 
 
 def to_labels(logits, grid, mapping: Mapping, *, interp="linear", outside: str = "background",
@@ -153,8 +150,8 @@ def to_labels(logits, grid, mapping: Mapping, *, interp="linear", outside: str =
     tables = build_tables(out_shape, src_shape, mapping, interp=interp, outside=outside, coord_dtype=coord_dtype,
                           out_start=out_start)
     opts = {"slab_voxels": int(slab_voxels)} if choice.name == "metal" else {}
-    klut = kernel_lut(lut_arr, mode=mode, paint=bool(paint), transparent=transparent)
-    choice.module.run(lg, out, tables, klut, mode=mode, paint=bool(paint),
+    choice.module.run(lg, out, tables, lut_arr.astype(np.int32), mode=mode, paint=bool(paint),
+                      skip=transparency_mask(lut_arr, transparent=transparent),
                       background=int(background), threshold=float(threshold), **opts)
     return out
 

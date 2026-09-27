@@ -111,14 +111,27 @@ def test_transparent_validation():
                      out=torch.zeros((8, 9, 10), dtype=torch.uint8))
 
 
-def test_kernel_lut():
+def test_transparency_mask():
     lut = [0, 5, 0, 7]
-    np.testing.assert_array_equal(lg.kernel_lut(lut, mode="argmax", paint=False, transparent="background"), lut)
-    np.testing.assert_array_equal(lg.kernel_lut(lut, mode="argmax", paint=True, transparent="background"),
-                                  [-1, 5, 0, 7])
-    np.testing.assert_array_equal(lg.kernel_lut(lut, mode="argmax", paint=True, transparent="zero"),
-                                  [-1, 5, -1, 7])
-    np.testing.assert_array_equal(lg.kernel_lut(lut, mode="regions", paint=True, transparent="background"), lut)
+    np.testing.assert_array_equal(lg.transparency_mask(lut, transparent="background"), [1, 0, 0, 0])
+    np.testing.assert_array_equal(lg.transparency_mask(lut, transparent="zero"), [1, 0, 1, 0])
+    np.testing.assert_array_equal(lg.transparency_mask([3, 5, 0, 7], transparent="zero"), [0, 0, 1, 0])
+
+
+def test_a_backend_called_without_skip_keeps_channel_0_transparent(device):
+    """A direct caller of run() that passes no skip gets the old rule, channel 0 transparent."""
+    from labelfield import backends
+    src, out_shape = (6, 7, 8), (11, 13, 15)
+    logits = torch.from_numpy(voronoi_logits(K=4, shape=src, seed=2)).to(device)
+    mapping = Mapping.corner(out_shape, src)
+    want = torch.full(out_shape, 9, dtype=torch.uint8, device=device)
+    lg.to_labels(logits, out_shape, mapping, paint=True, out=want)
+    choice = backends.select("auto", logits.device, tuple(logits.shape), out_shape)
+    got = torch.full(out_shape, 9, dtype=torch.uint8, device=device)
+    choice.module.run(logits, got, build_tables(out_shape, src, mapping), np.arange(4, dtype=np.int32),
+                      mode="argmax", paint=True, background=0, threshold=0.0)
+    np.testing.assert_array_equal(got.cpu().numpy(), want.cpu().numpy())
+    assert (got.cpu().numpy() == 9).any()
 
 
 def test_nearest_past_a_cropped_edge_is_outside():

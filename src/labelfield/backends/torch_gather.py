@@ -22,7 +22,7 @@ def _axis(t: AxisTable, device):
 
 @torch.no_grad()
 def run(logits: torch.Tensor, out: torch.Tensor, tables, lut, *, mode: str, paint: bool,
-        background: int, threshold: float) -> None:
+        background: int, threshold: float, skip=None) -> None:
     device = logits.device
     K, Zt, Yt, Xt = logits.shape
     Za, Ya, Xa = out.shape
@@ -31,6 +31,10 @@ def run(logits: torch.Tensor, out: torch.Tensor, tables, lut, *, mode: str, pain
     x0, x1, xf = _axis(tx, device)
     valid_plane = torch.from_numpy((ty.i0 >= 0)[:, None] & (tx.i0 >= 0)[None, :]).to(device)
     lut_t = torch.from_numpy(np.ascontiguousarray(lut, dtype=np.int32)).to(device)
+    if skip is None:
+        from . import default_skip
+        skip = default_skip(K)
+    skip_t = torch.from_numpy(np.ascontiguousarray(skip, dtype=bool)).to(device)
     bg = torch.full((Ya, Xa), int(background), dtype=torch.int32, device=device)
     wx0 = 1.0 - xf
     wy0 = (1.0 - yf)[:, None]
@@ -59,7 +63,7 @@ def run(logits: torch.Tensor, out: torch.Tensor, tables, lut, *, mode: str, pain
         if mode == "argmax":
             best = v.argmax(0)                       # first maximal channel
             lab = lut_t[best]
-            hit = lab >= 0                           # the host set transparent channels to -1
+            hit = ~skip_t[best]                      # a transparent channel won: leave the voxel
         else:
             lab = bg.clone()
             hit = torch.zeros((Ya, Xa), dtype=torch.bool, device=device)

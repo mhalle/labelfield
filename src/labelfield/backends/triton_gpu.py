@@ -72,7 +72,7 @@ if triton is not None:
 
     @triton.jit
     def fused_restore(logits_ptr, z0_ptr, z1_ptr, zf_ptr, y0_ptr, y1_ptr, yf_ptr,
-                      x0_ptr, x1_ptr, xf_ptr, lut_ptr, out_ptr,
+                      x0_ptr, x1_ptr, xf_ptr, lut_ptr, out_ptr, skip_ptr,
                       K, Zs, Ys, Xs, Ya, Xa, n_out, threshold, background,
                       MODE: tl.constexpr, PAINT: tl.constexpr, BLOCK: tl.constexpr):
         """One program per BLOCK output voxels.
@@ -154,7 +154,7 @@ if triton is not None:
             ch += chan
         if MODE == 0:
             label = tl.load(lut_ptr + best_k, mask=mask, other=background)
-            hit = label >= 0                          # the host set transparent channels to -1
+            hit = tl.load(skip_ptr + best_k, mask=mask, other=1) == 0   # a transparent channel won
 
         out_dtype = out_ptr.dtype.element_ty
         if PAINT:
@@ -187,7 +187,7 @@ def warmup(mode: str = "argmax", paint: bool = False) -> bool:
 
 @torch.no_grad()
 def run(logits: torch.Tensor, out: torch.Tensor, tables, lut, *, mode: str, paint: bool,
-        background: int, threshold: float, block: int = 256) -> None:
+        background: int, threshold: float, skip=None, block: int = 256) -> None:
     if not available():
         raise RuntimeError(f"labelfield.backends.triton_gpu: {why_unavailable()}")
     if logits.device.type != "cuda" or out.device.type != "cuda":
@@ -214,9 +214,13 @@ def run(logits: torch.Tensor, out: torch.Tensor, tables, lut, *, mode: str, pain
         return torch.from_numpy(np.ascontiguousarray(a, dtype=np.float32)).to(dev)
 
     tz, ty, tx = tables
+    if skip is None:
+        from . import default_skip
+        skip = default_skip(K)
     grid = (triton.cdiv(n_out, block),)
     fused_restore[grid](
         logits, to_i(tz.i0), to_i(tz.i1), to_f(tz.f), to_i(ty.i0), to_i(ty.i1), to_f(ty.f),
         to_i(tx.i0), to_i(tx.i1), to_f(tx.f), to_i(lut), out,
+        torch.from_numpy(np.ascontiguousarray(skip, dtype=np.uint8)).to(dev),
         K, Zs, Ys, Xs, Ya, Xa, n_out, float(threshold), int(background),
         MODE=0 if mode == "argmax" else 1, PAINT=bool(paint), BLOCK=block)

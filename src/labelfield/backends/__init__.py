@@ -3,15 +3,25 @@
 writing labels into ``out`` in place. A fused one also exposes
 ``cannot_take(logits_shape, out_shape)``: why its kernel cannot address a field, or None.
 
-``lut`` is the kernel's table (:func:`labelfield.labels.kernel_lut`): in an argmax paint a
-channel whose entry is -1 is transparent, and every other entry is the label written."""
+``lut`` is the labels as given. ``skip`` (optional) is a uint8 per channel, 1 = an argmax paint
+leaves the voxel untouched when that channel wins (:func:`labelfield.labels.transparency_mask`);
+without it, channel 0 is the transparent one."""
 from __future__ import annotations
 
 from typing import NamedTuple
 
 import torch
 
+import numpy as np
+
 from . import metal, torch_gather, triton_gpu
+
+
+def default_skip(K: int) -> np.ndarray:
+    """Channel 0 transparent: the paint rule when a caller passes no ``skip``."""
+    skip = np.zeros(int(K), dtype=np.uint8)
+    skip[0] = 1
+    return skip
 
 BACKENDS = {"torch": torch_gather, "metal": metal, "triton": triton_gpu}
 # the fused kernel "auto" takes on each device type, if it is installed and can address the field

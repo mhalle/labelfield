@@ -8,9 +8,9 @@ First version: haversack's fused logit -> label restore, extracted into its own 
   `resample_paint`, the float64 `reference`, and the Metal, Triton and torch backends, with
   their tests.
 - New: `transparent="zero"` for an argmax paint, which leaves a voxel untouched when its label
-  is 0 rather than when channel 0 wins - TotalSegmentator's compositor. The backends read a
-  kernel label table with -1 for a transparent channel (`kernel_lut`); the default,
-  `"background"`, is haversack's behavior.
+  is 0 rather than when channel 0 wins - TotalSegmentator's compositor. The backends take a
+  per-channel `skip` mask (`transparency_mask`) beside the label table, which stays the labels
+  as given; without one, channel 0 is transparent, which is haversack's behavior.
 - New: `import labelfield` needs only numpy; the torch names load on first use.
 - New: Python 3.9 and torch 2.1 floors, tested (3.9.6 / torch 2.1.2 on macOS). Below torch
   2.3 there is no `torch.uint16`, so labels above 255 raise; below 2.7 there is no Metal kernel.

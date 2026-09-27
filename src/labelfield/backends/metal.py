@@ -46,6 +46,7 @@ kernel void {NAME}(
     device const float*     txf     [[buffer(11)]],
     device const int*       lut     [[buffer(12)]],
     device {OUT_T}*         out     [[buffer(13)]],
+    device const uchar*     skip    [[buffer(14)]],
     uint elem [[thread_position_in_grid]])
 {
     const int n_slab = iparams[8];
@@ -91,8 +92,8 @@ kernel void {NAME}(
             float v = lg_sample<{LOGIT_T}>(logits, (long)k * chan_stride, b, wx0, xf, wy0, yf, wz0, zf);
             if (v > best) { best = v; best_k = k; }
         }
+        if (paint && skip[best_k]) return;   // a transparent channel: leave the voxel as it is
         label = lut[best_k];
-        if (paint && label < 0) return;      // a transparent channel (the host set it to -1)
     } else {
         int hit = 0;
         for (int k = 0; k < K; k++) {
@@ -164,7 +165,7 @@ def fp_contract() -> str | None:
 
 @torch.no_grad()
 def run(logits: torch.Tensor, out: torch.Tensor, tables, lut, *, mode: str, paint: bool, background: int,
-        threshold: float, slab_voxels: int = 1 << 26, group_size: int = 256) -> None:
+        threshold: float, skip=None, slab_voxels: int = 1 << 26, group_size: int = 256) -> None:
     if logits.device.type != "mps" or out.device.type != "mps":
         raise ValueError("labelfield.backends.metal: logits and out must be on the 'mps' device")
     if logits.dtype == torch.float32:
@@ -199,6 +200,10 @@ def run(logits: torch.Tensor, out: torch.Tensor, tables, lut, *, mode: str, pain
     bufs_tables = [to_i(tz.i0), to_i(tz.i1), to_f(tz.f), to_i(ty.i0), to_i(ty.i1), to_f(ty.f),
                    to_i(tx.i0), to_i(tx.i1), to_f(tx.f)]
     lut_t = to_i(lut)
+    if skip is None:
+        from . import default_skip
+        skip = default_skip(K)
+    skip_t = torch.from_numpy(np.ascontiguousarray(skip, dtype=np.uint8)).to(dev)
     fparams = torch.tensor([float(threshold)], dtype=torch.float32, device=dev)
     kernel = getattr(library(), f"lg_{lt}_{ot}")
     plane = Ya * Xa
@@ -209,4 +214,4 @@ def run(logits: torch.Tensor, out: torch.Tensor, tables, lut, *, mode: str, pain
         n_slab = nz * plane
         iparams = torch.tensor([K, Zt, Yt, Xt, Za, Ya, Xa, z_off, n_slab, mode_i, int(bool(paint)), int(background)],
                                dtype=torch.int32, device=dev)
-        kernel(logits, iparams, fparams, *bufs_tables, lut_t, out, threads=n_slab, group_size=group_size)
+        kernel(logits, iparams, fparams, *bufs_tables, lut_t, out, skip_t, threads=n_slab, group_size=group_size)

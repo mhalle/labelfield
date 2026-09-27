@@ -19,7 +19,7 @@ from .tables import AxisTable, axis_table, build_tables
 
 __version__ = "0.1.0"
 
-_TORCH_NAMES = {"to_labels", "resample_argmax", "resample_paint", "available_backends", "kernel_lut"}
+_TORCH_NAMES = {"to_labels", "resample_argmax", "resample_paint", "available_backends", "transparency_mask"}
 
 
 def __getattr__(name):
@@ -33,5 +33,5 @@ def __getattr__(name):
 
 
 __all__ = ["Grid", "Mapping", "AxisTable", "axis_table", "build_tables", "reference",
-           "to_labels", "resample_argmax", "resample_paint", "available_backends", "kernel_lut",
+           "to_labels", "resample_argmax", "resample_paint", "available_backends", "transparency_mask",
            "backends"]
