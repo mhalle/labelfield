@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-09-27)
 
 First version: haversack's fused logit -> label restore, extracted into its own package.
 
