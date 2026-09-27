@@ -52,7 +52,7 @@ def to_labels(logits, grid, mapping: Mapping, *, interp="linear", outside: str =
               lut=None, mode: str = "argmax", paint: bool = False, transparent: str = "background",
               threshold: float = 0.0, background: int = 0, out: torch.Tensor | None = None,
               out_dtype=None, backend: str = "auto", coord_dtype=np.float64,
-              slab_voxels: int = 1 << 26) -> torch.Tensor:
+              slab_voxels: int = 1 << 26, out_start=(0, 0, 0)) -> torch.Tensor:
     """Labels on ``grid`` from a ``(K, Z, Y, X)`` logit field.
 
     Parameters
@@ -94,6 +94,11 @@ def to_labels(logits, grid, mapping: Mapping, *, interp="linear", outside: str =
     backend : "auto" | "metal" | "torch" | "triton"
     coord_dtype : np.float64 | np.float32
         Coordinate arithmetic; float32 mimics the nnunet-inference-mlx kernel exactly.
+    out_start : (Z, Y, X) ints
+        Where ``grid`` sits in the grid ``mapping`` is written for: output voxel ``j`` samples
+        at ``mapping(j + out_start)``, computed from that integer index. Restoring a larger grid
+        slab by slab (``out=big[z0:z1]``, ``out_start=(z0, 0, 0)``) then makes exactly the
+        decisions a single call would.
     """
     lg = _as_torch(logits)
     if lg.ndim != 4:
@@ -145,7 +150,8 @@ def to_labels(logits, grid, mapping: Mapping, *, interp="linear", outside: str =
         # a caller of this function would otherwise never learn it got the slower backend
         warnings.warn(f"labelfield.to_labels: {choice.fallback}; restoring with the torch backend, "
                       f"which has no such limit but is slower", RuntimeWarning, stacklevel=2)
-    tables = build_tables(out_shape, src_shape, mapping, interp=interp, outside=outside, coord_dtype=coord_dtype)
+    tables = build_tables(out_shape, src_shape, mapping, interp=interp, outside=outside, coord_dtype=coord_dtype,
+                          out_start=out_start)
     opts = {"slab_voxels": int(slab_voxels)} if choice.name == "metal" else {}
     klut = kernel_lut(lut_arr, mode=mode, paint=bool(paint), transparent=transparent)
     choice.module.run(lg, out, tables, klut, mode=mode, paint=bool(paint),

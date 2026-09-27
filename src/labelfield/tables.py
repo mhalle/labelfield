@@ -42,8 +42,13 @@ def normalize_interp(interp) -> tuple[str, str, str]:
 
 
 def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "linear",
-               outside: str = "background", coord_dtype=np.float64) -> AxisTable:
-    """Tables for one axis of ``x_src = a * j + b``, ``j = 0 .. n_out-1``.
+               outside: str = "background", coord_dtype=np.float64, start: int = 0) -> AxisTable:
+    """Tables for one axis of ``x_src = a * j + b``, ``j = start .. start + n_out - 1``.
+
+    ``start`` lets a caller build the tables of a slab of a larger output grid: the coordinate
+    is computed from the full grid's integer index, so every decision is the one the whole grid
+    would make. Folding the offset into ``b`` instead rounds twice, which flips a nearest pick
+    that lands exactly half-way between two samples.
 
     ``coord_dtype=np.float64`` evaluates the coordinate the way scipy / skimage
     do. ``np.float32`` evaluates it the way the nnunet-inference-mlx Metal
@@ -53,9 +58,12 @@ def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "lin
 
     Linear: ``i0 = floor(c)``, ``f = c - i0``, ``i1 = min(i0 + 1, n_src - 1)``.
     Nearest: ``i0 = i1 = floor(c + 0.5)`` (scipy's order-0 rule), ``f = 0``.
-    A coordinate is inside the source if it lies within the voxel volumes,
+    Linear: a coordinate is inside the source if it lies within the voxel volumes,
     ``-0.5 <= c <= n_src - 0.5``; inside, it is clamped to ``[0, n_src - 1]``
     (edge extension, as skimage ``mode="edge"`` / scipy ``mode="nearest"``).
+    Nearest: inside if the sample it picks exists, ``-0.5 <= c < n_src - 0.5`` - so a
+    coordinate exactly half-way past the last sample is outside, as it is for a nearest
+    resample of a label map whose voxels beyond the edge are background (a crop).
     Outside: ``-1`` sentinel (``outside="background"``) or clamped anyway
     (``outside="clamp"``, the nnunet-inference-mlx behavior).
     """
@@ -69,9 +77,9 @@ def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "lin
     n_out, n_src = int(n_out), int(n_src)
     if n_out < 1 or n_src < 1:
         raise ValueError("n_out and n_src must be >= 1")
-    j = np.arange(n_out, dtype=dt)
+    j = np.arange(int(start), int(start) + n_out, dtype=dt)
     c = (j * dt.type(a) + dt.type(b)).astype(np.float64)
-    valid = (c >= -0.5) & (c <= n_src - 0.5)
+    valid = (c >= -0.5) & ((c <= n_src - 0.5) if interp == "linear" else (c < n_src - 0.5))
     if outside == "clamp":
         valid = np.ones_like(valid)
     c = np.clip(c, 0.0, float(n_src - 1))
@@ -89,15 +97,20 @@ def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "lin
 
 
 def build_tables(out_shape, src_shape, mapping: Mapping, *, interp="linear", outside: str = "background",
-                 coord_dtype=np.float64) -> tuple[AxisTable, AxisTable, AxisTable]:
-    """(Z, Y, X) tables for ``mapping`` from an ``out_shape`` grid into a ``src_shape`` grid."""
+                 coord_dtype=np.float64, out_start=(0, 0, 0)) -> tuple[AxisTable, AxisTable, AxisTable]:
+    """(Z, Y, X) tables for ``mapping`` from an ``out_shape`` grid into a ``src_shape`` grid.
+
+    ``out_start``: index of this grid's voxel (0, 0, 0) in the grid ``mapping`` is written for
+    (see :func:`axis_table`'s ``start``).
+    """
     interp3 = normalize_interp(interp)
     out_shape = tuple(int(x) for x in out_shape)
     src_shape = tuple(int(x) for x in src_shape)
-    if len(out_shape) != 3 or len(src_shape) != 3:
-        raise ValueError("out_shape and src_shape must be (Z, Y, X)")
+    out_start = tuple(int(x) for x in out_start)
+    if len(out_shape) != 3 or len(src_shape) != 3 or len(out_start) != 3:
+        raise ValueError("out_shape, src_shape and out_start must be (Z, Y, X)")
     return tuple(
         axis_table(out_shape[ax], src_shape[ax], mapping.a[ax], mapping.b[ax],
-                   interp=interp3[ax], outside=outside, coord_dtype=coord_dtype)
+                   interp=interp3[ax], outside=outside, coord_dtype=coord_dtype, start=out_start[ax])
         for ax in range(3)
     )

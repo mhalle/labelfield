@@ -16,3 +16,9 @@ First version: haversack's fused logit -> label restore, extracted into its own 
   2.3 there is no `torch.uint16`, so labels above 255 raise; below 2.7 there is no Metal kernel.
 - New: `tests/test_totalsegmentator.py` - nearest paint with `Mapping.corner` equals
   TotalSegmentator's composite-then-`zoom(order=0)` exactly, on CPU and MPS.
+- New: `out_start` on `to_labels` / `build_tables` - restore a slab of a larger grid with the
+  decisions of one call. Folding the offset into the mapping instead rounds twice, which flips
+  a nearest pick exactly half-way between samples.
+- Changed from haversack: with `interp="nearest"` a coordinate is inside only if the sample it
+  picks exists (`-0.5 <= c < n - 0.5`), so a coordinate half-way past a cropped edge is outside,
+  as in a nearest resample of the uncropped label map. Linear keeps `c <= n - 0.5`.

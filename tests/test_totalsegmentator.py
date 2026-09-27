@@ -119,3 +119,36 @@ def test_kernel_lut():
     np.testing.assert_array_equal(lg.kernel_lut(lut, mode="argmax", paint=True, transparent="zero"),
                                   [-1, 5, -1, 7])
     np.testing.assert_array_equal(lg.kernel_lut(lut, mode="regions", paint=True, transparent="background"), lut)
+
+
+def test_nearest_past_a_cropped_edge_is_outside():
+    """A label map that is background beyond a crop, resampled nearest: a coordinate exactly
+    half-way past the last sample picks the (background) voxel beyond it, so it is outside -
+    not clamped onto the edge voxel. Input y = 35 of 37 lands on model 17.5 of 19 here."""
+    model_shape, input_shape = (4, 19, 5), (4, 37, 5)
+    logits = voronoi_logits(K=3, shape=model_shape, seed=1)
+    lab = np.zeros(model_shape, np.uint8)
+    lab[:, :18] = logits[:, :, :18].argmax(0)                  # a crop that ends at y = 18
+    want = zoom(np.where(lab == 0, 9, lab).astype(np.uint8), np.asarray(input_shape) / model_shape,
+                order=0, mode="nearest")
+    out = torch.full(input_shape, 9, dtype=torch.uint8)
+    lg.to_labels(torch.from_numpy(np.ascontiguousarray(logits[:, :, :18])), input_shape,
+                 Mapping.corner(input_shape, model_shape), interp="nearest", paint=True,
+                 transparent="zero", out=out)
+    np.testing.assert_array_equal(out.numpy(), want)
+
+
+@pytest.mark.parametrize("interp", ["nearest", "linear"])
+def test_slabs_with_out_start_equal_one_call(device, interp):
+    """Slab by slab with out_start makes the decisions of a single call - including the
+    exact half-way coordinates (65 * 69 / 130 = 34.5) that folding the offset into b flips."""
+    model_shape, input_shape = (70, 9, 8), (131, 17, 15)
+    logits = torch.from_numpy(voronoi_logits(K=5, shape=model_shape, seed=4)).to(device)
+    mapping = Mapping.corner(input_shape, model_shape)
+    whole = lg.to_labels(logits, input_shape, mapping, interp=interp).cpu().numpy()
+    out = torch.zeros(input_shape, dtype=torch.uint8, device=device)
+    for z0 in range(0, input_shape[0], 7):
+        z1 = min(z0 + 7, input_shape[0])
+        lg.to_labels(logits, (z1 - z0, *input_shape[1:]), mapping, interp=interp,
+                     out=out[z0:z1], out_start=(z0, 0, 0))
+    np.testing.assert_array_equal(out.cpu().numpy(), whole)
