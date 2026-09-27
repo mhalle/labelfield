@@ -9,11 +9,15 @@ Needs a Modal account (`modal token new`); it does not need modal installed in t
 
     uv run --no-project --with modal modal run tools/cuda_check.py
     uv run --no-project --with modal modal run tools/cuda_check.py --tests tests/test_totalsegmentator.py
+    LABELFIELD_GPU=A10G uv run --no-project --with modal modal run tools/cuda_check.py
+
+The GPU defaults to a T4, the smallest that runs Triton; the tests are tiny.
 
 One run is a couple of minutes of GPU time, most of it building the image the first time.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import modal
@@ -29,9 +33,10 @@ image = (
 )
 
 app = modal.App("labelfield-cuda-check", image=image)
+GPU = os.environ.get("LABELFIELD_GPU", "T4")
 
 
-@app.function(gpu="A10G", timeout=1800)
+@app.function(gpu=GPU, timeout=1800)
 def check(tests: str) -> dict:
     import subprocess
     import sys
