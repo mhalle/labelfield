@@ -17,16 +17,32 @@ class Mapping:
     permutations belong to the caller's frame, not here. ``a >= 0``.
 
     Compose with ``>>``: ``m1 >> m2`` applies ``m1`` first.
+
+    ``centered`` marks the voxel-center rule (:meth:`center`): the same map, which
+    :func:`~labelfield.tables.axis_table` evaluates as ``(j + 0.5) * a - 0.5`` - scipy's,
+    skimage's and so nnU-Net's own arithmetic - rather than ``a * j + b``. The two agree except at
+    a coordinate exactly half-way between two samples, where they round apart and a nearest pick
+    takes the other sample (1453 of 577071 picks disagreed with ``zoom(grid_mode=True)`` before
+    0.1.2). ``a`` and ``b`` mean what they always did. Composing with the identity keeps the flag;
+    any other composition, and an inverse, drop it.
     """
 
     a: Vec3
     b: Vec3 = (0.0, 0.0, 0.0)
+    centered: bool = False
 
     def __post_init__(self):
         object.__setattr__(self, "a", _vec3(self.a, "a"))
         object.__setattr__(self, "b", _vec3(self.b, "b"))
+        object.__setattr__(self, "centered", bool(self.centered))
         if any(x < 0 for x in self.a):
             raise ValueError(f"a must be >= 0 on every axis (flips belong to the frame); got {self.a}")
+        if self.centered and not np.allclose(self.b, 0.5 * np.asarray(self.a) - 0.5, rtol=0, atol=1e-9):
+            raise ValueError(f"a centered mapping has b = a / 2 - 1/2; got a={self.a}, b={self.b}")
+
+    @property
+    def is_identity(self) -> bool:
+        return self.a == (1.0, 1.0, 1.0) and self.b == (0.0, 0.0, 0.0)
 
     def apply(self, x_from) -> np.ndarray:
         """Apply to coordinates (..., 3)."""
@@ -34,6 +50,10 @@ class Mapping:
 
     def then(self, other: "Mapping") -> "Mapping":
         """``self`` first, then ``other``."""
+        if self.is_identity:
+            return other
+        if other.is_identity:
+            return self
         a1, b1 = np.asarray(self.a), np.asarray(self.b)
         a2, b2 = np.asarray(other.a), np.asarray(other.b)
         return Mapping(tuple(a2 * a1), tuple(a2 * b1 + b2))
@@ -55,15 +75,16 @@ class Mapping:
     def center(cls, shape_from, shape_to) -> "Mapping":
         """Voxel-center (half-pixel) rule: ``x_to = (x_from + 0.5) * n_to / n_from - 0.5``.
 
-        The rule of ``skimage.transform.resize``, ITK, ``F.interpolate(align_corners=False)``
-        and therefore nnU-Net's own resampler. ``Mapping.center(n_src, n_model)`` maps
-        source-image indices to model-grid coordinates for a model grid produced
-        by that resampler - i.e. it inverts the forward resample exactly.
+        The rule of ``skimage.transform.resize``, ``scipy.ndimage.zoom(grid_mode=True)``, ITK,
+        ``F.interpolate(align_corners=False)`` and therefore nnU-Net's own resampler.
+        ``Mapping.center(n_src, n_model)`` maps source-image indices to model-grid coordinates
+        for a model grid produced by that resampler - i.e. it inverts the forward resample
+        exactly, and (``centered``) a nearest pick at an exact tie is scipy's.
         """
         n_from = np.asarray(shape_from, dtype=np.float64)
         n_to = np.asarray(shape_to, dtype=np.float64)
         a = n_to / n_from
-        return cls(tuple(a), tuple(0.5 * a - 0.5))
+        return cls(tuple(a), tuple(0.5 * a - 0.5), centered=True)
 
     @classmethod
     def corner(cls, shape_from, shape_to) -> "Mapping":
@@ -102,7 +123,7 @@ class Mapping:
     def __repr__(self) -> str:
         a = ", ".join(f"{x:g}" for x in self.a)
         b = ", ".join(f"{x:g}" for x in self.b)
-        return f"Mapping(a=({a}), b=({b}))"
+        return f"Mapping(a=({a}), b=({b}){', centered' if self.centered else ''})"
 
 
 #: Off-diagonal terms of an :class:`Affine` below this fraction of its largest diagonal term

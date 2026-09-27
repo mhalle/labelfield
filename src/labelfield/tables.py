@@ -79,8 +79,13 @@ def axis_coords(c, n_src: int, *, interp: str = "linear", outside: str = "backgr
 
 
 def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "linear",
-               outside: str = "background", coord_dtype=np.float64, start: int = 0) -> AxisTable:
+               outside: str = "background", coord_dtype=np.float64, start: int = 0,
+               centered: bool = False) -> AxisTable:
     """Tables for one axis of ``x_src = a * j + b``, ``j = start .. start + n_out - 1``.
+
+    ``centered`` (the voxel-center rule, :meth:`Mapping.center`) evaluates the same map as
+    ``(j + 0.5) * a - 0.5``, scipy's and skimage's arithmetic, so a nearest pick at an exact tie is
+    theirs; ``b`` is then ``a / 2 - 1/2`` and not read.
 
     ``start`` lets a caller build the tables of a slab of a larger output grid: the coordinate
     is computed from the full grid's integer index, so every decision is the one the whole grid
@@ -108,7 +113,10 @@ def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "lin
     if n_out < 1 or n_src < 1:
         raise ValueError("n_out and n_src must be >= 1")
     j = np.arange(int(start), int(start) + n_out, dtype=dt)
-    c = (j * dt.type(a) + dt.type(b)).astype(np.float64)
+    if centered:
+        c = ((j + dt.type(0.5)) * dt.type(a) - dt.type(0.5)).astype(np.float64)
+    else:
+        c = (j * dt.type(a) + dt.type(b)).astype(np.float64)
     valid, i0, i1, f = axis_coords(c, n_src, interp=interp, outside=outside)
     i0 = i0.astype(np.int32)
     i0[~valid] = -1
@@ -130,6 +138,7 @@ def build_tables(out_shape, src_shape, mapping: Mapping, *, interp="linear", out
         raise ValueError("out_shape, src_shape and out_start must be (Z, Y, X)")
     return tuple(
         axis_table(out_shape[ax], src_shape[ax], mapping.a[ax], mapping.b[ax],
-                   interp=interp3[ax], outside=outside, coord_dtype=coord_dtype, start=out_start[ax])
+                   interp=interp3[ax], outside=outside, coord_dtype=coord_dtype, start=out_start[ax],
+                   centered=bool(getattr(mapping, "centered", False)))
         for ax in range(3)
     )

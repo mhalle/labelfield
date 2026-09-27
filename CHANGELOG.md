@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.2 (2026-09-27)
+
+- **The voxel-center rule is evaluated as scipy evaluates it.** `Mapping.center` now marks itself
+  `centered`, and the tables compute its coordinates as `(j + 0.5) * a - 0.5` - the arithmetic of
+  `scipy.ndimage.zoom(grid_mode=True)`, `skimage.transform.resize` and so nnU-Net's resampler -
+  instead of `a * j + b`. The two are one map and agree except at coordinates exactly half-way
+  between two samples, where they round apart: 1453 of 577071 nearest picks differed from scipy's,
+  and none do now. `a` and `b` keep their meaning (`a * x + b`), so code that reads them is
+  unaffected; composing with the identity keeps `centered`, any other composition drops it.
+
 ## 0.1.1 (2026-09-27)
 
 - `axis_coords(c, n_src, interp=, outside=)`: the per-axis decision - inside or not, the two
