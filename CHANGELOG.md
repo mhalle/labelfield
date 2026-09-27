@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1 (2026-09-27)
+
+- `axis_coords(c, n_src, interp=, outside=)`: the per-axis decision - inside or not, the two
+  samples, the weight - for any float64 coordinates, not only a grid's rows. `axis_table` now
+  applies it, so it is the one place the rule lives; a restore through a general map (below)
+  decides with it and agrees with the tables wherever both apply.
+- `Affine` (and `SEPARABLE_TOLERANCE`): a general map between index spaces - rotation, flips,
+  axis swaps - built `between` two geometry records (direction rows + origin), with `separable`
+  giving the per-axis `Mapping` where the grids line up. Moved from rankfield, unchanged.
+
 ## 0.1.0 (2026-09-27)
 
 First version: haversack's fused logit -> label restore, extracted into its own package.

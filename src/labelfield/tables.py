@@ -41,6 +41,43 @@ def normalize_interp(interp) -> tuple[str, str, str]:
     return t
 
 
+def axis_coords(c, n_src: int, *, interp: str = "linear", outside: str = "background"):
+    """The per-axis rule for any coordinates: ``(valid, i0, i1, f)`` for float64 coordinates
+    ``c`` (any shape) along an axis of ``n_src`` samples - whether each is inside, the two
+    samples to blend and the weight of the second (float64; zero for nearest). The one place the
+    rule lives: :func:`axis_table` applies it to ``a * j + b``, and a restore through a general
+    :class:`~labelfield.mapping.Affine` applies it to each voxel's coordinates, so the two decide
+    alike wherever both apply.
+
+    Linear: ``i0 = floor(c)``, ``f = c - i0``, ``i1 = min(i0 + 1, n_src - 1)``; inside if
+    ``-0.5 <= c <= n_src - 0.5``. Nearest: ``i0 = i1 = floor(c + 0.5)`` (scipy's order-0 rule,
+    rounding a coordinate exactly half-way UP), ``f = 0``; inside if the sample it picks exists,
+    ``-0.5 <= c < n_src - 0.5``. Inside, ``c`` is clamped to ``[0, n_src - 1]`` (edge extension,
+    as skimage ``mode="edge"`` / scipy ``mode="nearest"``); ``outside="clamp"`` makes every
+    coordinate inside. Indices are int64, where ``valid`` is False as well (a caller masks them).
+    """
+    if interp not in INTERP:
+        raise ValueError(f"interp must be one of {INTERP}; got {interp!r}")
+    if outside not in OUTSIDE:
+        raise ValueError(f"outside must be one of {OUTSIDE}; got {outside!r}")
+    n_src = int(n_src)
+    c = np.asarray(c, dtype=np.float64)
+    if outside == "clamp":
+        valid = np.ones(c.shape, dtype=bool)
+    else:
+        valid = (c >= -0.5) & ((c <= n_src - 0.5) if interp == "linear" else (c < n_src - 0.5))
+    c = np.clip(c, 0.0, float(n_src - 1))
+    if interp == "linear":
+        i0 = np.floor(c)
+        f = c - i0
+        i1 = np.minimum(i0 + 1, n_src - 1)
+    else:
+        i0 = np.minimum(np.floor(c + 0.5), n_src - 1)
+        i1 = i0
+        f = np.zeros_like(c)
+    return valid, i0.astype(np.int64), i1.astype(np.int64), f
+
+
 def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "linear",
                outside: str = "background", coord_dtype=np.float64, start: int = 0) -> AxisTable:
     """Tables for one axis of ``x_src = a * j + b``, ``j = start .. start + n_out - 1``.
@@ -56,16 +93,9 @@ def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "lin
     Decisions (validity, floor, rounding) are then made in float64, which is
     exact for either input.
 
-    Linear: ``i0 = floor(c)``, ``f = c - i0``, ``i1 = min(i0 + 1, n_src - 1)``.
-    Nearest: ``i0 = i1 = floor(c + 0.5)`` (scipy's order-0 rule), ``f = 0``.
-    Linear: a coordinate is inside the source if it lies within the voxel volumes,
-    ``-0.5 <= c <= n_src - 0.5``; inside, it is clamped to ``[0, n_src - 1]``
-    (edge extension, as skimage ``mode="edge"`` / scipy ``mode="nearest"``).
-    Nearest: inside if the sample it picks exists, ``-0.5 <= c < n_src - 0.5`` - so a
-    coordinate exactly half-way past the last sample is outside, as it is for a nearest
-    resample of a label map whose voxels beyond the edge are background (a crop).
-    Outside: ``-1`` sentinel (``outside="background"``) or clamped anyway
-    (``outside="clamp"``, the nnunet-inference-mlx behavior).
+    The decisions are :func:`axis_coords`'s. An output index outside the source gets the
+    ``-1`` sentinel in ``i0`` (``outside="background"``); ``outside="clamp"`` (the
+    nnunet-inference-mlx behavior) makes every index inside.
     """
     if interp not in INTERP:
         raise ValueError(f"interp must be one of {INTERP}; got {interp!r}")
@@ -79,18 +109,7 @@ def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "lin
         raise ValueError("n_out and n_src must be >= 1")
     j = np.arange(int(start), int(start) + n_out, dtype=dt)
     c = (j * dt.type(a) + dt.type(b)).astype(np.float64)
-    valid = (c >= -0.5) & ((c <= n_src - 0.5) if interp == "linear" else (c < n_src - 0.5))
-    if outside == "clamp":
-        valid = np.ones_like(valid)
-    c = np.clip(c, 0.0, float(n_src - 1))
-    if interp == "linear":
-        i0 = np.floor(c)
-        f = c - i0
-        i1 = np.minimum(i0 + 1, n_src - 1)
-    else:
-        i0 = np.minimum(np.floor(c + 0.5), n_src - 1)
-        i1 = i0
-        f = np.zeros_like(c)
+    valid, i0, i1, f = axis_coords(c, n_src, interp=interp, outside=outside)
     i0 = i0.astype(np.int32)
     i0[~valid] = -1
     return AxisTable(i0, i1.astype(np.int32), f.astype(np.float32), f.astype(np.float64))

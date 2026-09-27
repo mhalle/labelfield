@@ -1,4 +1,4 @@
-"""Per-axis affine maps between index spaces."""
+"""Maps between index spaces: per-axis (:class:`Mapping`), and general (:class:`Affine`)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -103,3 +103,73 @@ class Mapping:
         a = ", ".join(f"{x:g}" for x in self.a)
         b = ", ".join(f"{x:g}" for x in self.b)
         return f"Mapping(a=({a}), b=({b}))"
+
+
+#: Off-diagonal terms of an :class:`Affine` below this fraction of its largest diagonal term
+#: are float noise, not rotation (``Affine.separable``): far below any real obliquity (a
+#: 0.001 degree tilt is 1.7e-5) and far above composition noise (~1e-16).
+SEPARABLE_TOLERANCE = 1e-9
+
+
+@dataclass(frozen=True)
+class Affine:
+    """``x_to = x_from @ m + b``: a general affine map between index spaces (array order,
+    row vectors), rotation and shear included.
+
+    For two grids whose axes do not line up in the world - a model grid a model resampled
+    in world space, like FastSurfer's conformed 1 mm grid, against an oblique acquisition -
+    no per-axis :class:`Mapping` relates them. :meth:`between` builds this one from their
+    two geometry records: output index -> world -> source index. Every restore decision (the
+    inside test, the edge clamp, the corners and weights) stays per axis, on the coordinates
+    this produces - :func:`labelfield.tables.axis_coords` makes them, as it makes the tables.
+    """
+
+    m: tuple
+    b: Vec3 = (0.0, 0.0, 0.0)
+
+    def __post_init__(self):
+        m = np.asarray(self.m, dtype=np.float64)
+        if m.shape != (3, 3) or not np.isfinite(m).all():
+            raise ValueError(f"m must be a finite 3x3 matrix; got {self.m!r}")
+        object.__setattr__(self, "m", tuple(tuple(float(v) for v in r) for r in m))
+        object.__setattr__(self, "b", _vec3(self.b, "b"))
+
+    def apply(self, x_from) -> np.ndarray:
+        """Apply to coordinates (..., 3)."""
+        return np.asarray(x_from, dtype=np.float64) @ np.asarray(self.m) + np.asarray(self.b)
+
+    def inverse(self) -> "Affine":
+        mi = np.linalg.inv(np.asarray(self.m))
+        return Affine(mi, tuple(-np.asarray(self.b) @ mi))
+
+    @property
+    def separable(self) -> Mapping | None:
+        """The same map as a per-axis :class:`Mapping` - no rotation, no shear, no flip -
+        or None. A restore takes the per-axis path (and the fused kernels) whenever this
+        exists, so two grids that happen to line up restore exactly as they always did.
+
+        "No rotation" to within float noise: ``between`` composes one geometry with the
+        other's inverse, and two oblique grids of one orientation leave off-diagonal terms
+        of ~1e-17 - which sent such a restore down the general path, ~40x slower on MPS
+        (review, 2026-09-26). Terms below ``SEPARABLE_TOLERANCE`` of the largest diagonal
+        are taken for the zeros they are."""
+        m = np.asarray(self.m)
+        d = np.diag(m)
+        scale = float(np.abs(d).max()) or 1.0
+        if np.any(np.abs(m - np.diag(d)) > SEPARABLE_TOLERANCE * scale) or np.any(d < 0):
+            return None
+        return Mapping(tuple(d), self.b)
+
+    @classmethod
+    def between(cls, geo_from, geo_to) -> "Affine":
+        """Index on ``geo_from`` -> continuous index on ``geo_to``, through the world. Each is
+        anything with ``directions`` (one world-space step vector per array axis, as rows: 3x3)
+        and ``origin`` (the world position of sample (0, 0, 0)) - rankfield's and duckn's
+        ``Geometry``, which is NRRD's convention."""
+        d_from = np.asarray(geo_from.directions, dtype=np.float64)
+        d_to_inv = np.linalg.inv(np.asarray(geo_to.directions, dtype=np.float64))
+        b = (np.asarray(geo_from.origin, dtype=np.float64) - np.asarray(geo_to.origin, dtype=np.float64)) @ d_to_inv
+        return cls(d_from @ d_to_inv, tuple(b))
+
+    def __repr__(self) -> str:
+        return f"Affine(m={np.round(np.asarray(self.m), 6).tolist()}, b={tuple(round(v, 6) for v in self.b)})"

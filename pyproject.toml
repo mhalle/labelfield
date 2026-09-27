@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "labelfield"
-version = "0.1.0"
+version = "0.1.1"
 description = "labelfield: a per-class logit field to labels on any grid - trilinear interpolation, argmax and multi-model paint fused on the GPU"
 license = "Apache-2.0"
 requires-python = ">=3.9"

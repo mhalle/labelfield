@@ -14,10 +14,10 @@ from __future__ import annotations
 
 from . import reference
 from .grid import Grid
-from .mapping import Mapping
-from .tables import AxisTable, axis_table, build_tables
+from .mapping import Affine, Mapping
+from .tables import AxisTable, axis_coords, axis_table, build_tables
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 _TORCH_NAMES = {"to_labels", "resample_argmax", "resample_paint", "available_backends", "transparency_mask"}
 
@@ -32,6 +32,6 @@ def __getattr__(name):
     raise AttributeError(f"module 'labelfield' has no attribute {name!r}")
 
 
-__all__ = ["Grid", "Mapping", "AxisTable", "axis_table", "build_tables", "reference",
+__all__ = ["Grid", "Mapping", "Affine", "AxisTable", "axis_coords", "axis_table", "build_tables", "reference",
            "to_labels", "resample_argmax", "resample_paint", "available_backends", "transparency_mask",
            "backends"]

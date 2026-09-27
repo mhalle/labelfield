@@ -22,7 +22,8 @@ label map does.
   `Mapping.corner` is `scipy.ndimage.zoom(grid_mode=False)` - TotalSegmentator's
   `change_spacing` - and `Mapping.center` is `skimage.resize`, i.e. nnU-Net's resampler.
   All backends consume the same host-built per-axis tables, so they can differ only in float
-  rounding of the blend, never in where they sample.
+  rounding of the blend, never in where they sample. `Affine` maps grids that do not line up
+  (rotated, flipped), and `axis_coords` is the per-axis decision rule for any coordinates.
 - **Reference:** `labelfield.reference` is a float64 numpy implementation of the same
   semantics, for tests.
 
