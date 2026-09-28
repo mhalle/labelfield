@@ -93,7 +93,7 @@ centers (3 positive floats or one). `origin`: physical position of the center of
 ## Mapping
 
 ```text
-Mapping(a, b=(0.0, 0.0, 0.0), centered=False)
+Mapping(a, b=(0.0, 0.0, 0.0), centered=False, exact=None)
 ```
 
 Per-axis map `x_to = a * x_from + b`, `a >= 0`. For `to_labels`, *from* is the output grid
@@ -110,7 +110,10 @@ and *to* is the model grid. Frozen; compares by value.
 | `then(other)`, `>>` | `m1 >> m2` applies `m1`, then `m2` |
 | `inverse()` | inverse; `ValueError` if any scale is 0 |
 | `is_identity` | exact identity test |
-| `centered` | coordinates are evaluated as `(j + 0.5) * a - 0.5` (scipy's arithmetic); kept only when composing with the identity |
+| `centered` | coordinates are evaluated as `(j + 0.5) * a - 0.5` (scipy's arithmetic); kept when composing with the identity or an integer shift |
+| `exact` | set by composition: `(core_b, pre, post)`, the map as `core(x + pre) - post` with integer shifts `pre`, `post`; `b` is the folded offset |
+| `terms()` | `(core_b, pre, post)`, the form the tables evaluate |
+| `integer_shift` | the integer offsets if the mapping is a pure integer shift, else None |
 
 See [concepts.md](concepts.md#choosing-a-mapping) for choosing a constructor.
 
@@ -141,7 +144,7 @@ The per-axis tables every backend consumes. Most users do not call these directl
 build_tables(out_shape, src_shape, mapping, *, interp="linear", outside="background",
              coord_dtype=np.float64, out_start=(0, 0, 0)) -> (AxisTable, AxisTable, AxisTable)
 axis_table(n_out, n_src, a, b, *, interp="linear", outside="background",
-           coord_dtype=np.float64, start=0, centered=False) -> AxisTable
+           coord_dtype=np.float64, start=0, centered=False, pre=0, post=0) -> AxisTable
 axis_coords(c, n_src, *, interp="linear", outside="background") -> (valid, i0, i1, f)
 ```
 

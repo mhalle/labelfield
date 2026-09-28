@@ -115,7 +115,7 @@ def axis_coords(c, n_src: int, *, interp: str = "linear", outside: str = "backgr
 
 def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "linear",
                outside: str = "background", coord_dtype=np.float64, start: int = 0,
-               centered: bool = False) -> AxisTable:
+               centered: bool = False, pre: int = 0, post: int = 0) -> AxisTable:
     """The :class:`AxisTable` for one axis of the map ``x_src = a * j + b``, for output indices
     ``j = start, ..., start + n_out - 1``.
 
@@ -142,6 +142,10 @@ def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "lin
         Evaluate the coordinate as ``(j + 0.5) * a - 0.5`` (the arithmetic of scipy and
         scikit-image for the voxel-center rule) instead of ``a * j + b``; ``b`` is then
         ignored. :func:`build_tables` passes ``Mapping.centered``.
+    pre, post : int, default 0
+        Integer shifts before and after the map: the coordinate is ``map(j + pre) - post``,
+        with both steps exact. :func:`build_tables` passes them from ``Mapping.terms()``, and
+        ``b`` is then the core offset, not the folded one.
 
     An output index outside the source gets ``i0 = -1`` (only with ``outside="background"``).
     Raises ``ValueError`` for invalid arguments.
@@ -156,11 +160,15 @@ def axis_table(n_out: int, n_src: int, a: float, b: float, *, interp: str = "lin
     n_out, n_src = int(n_out), int(n_src)
     if n_out < 1 or n_src < 1:
         raise ValueError("n_out and n_src must be >= 1")
-    j = np.arange(int(start), int(start) + n_out, dtype=dt)
+    # pre / post: integer shifts before and after the map (Mapping.exact), applied as exact
+    # integer steps so a crop offset rounds no coordinate differently than the uncropped map
+    j = np.arange(int(start) + int(pre), int(start) + int(pre) + n_out, dtype=dt)
     if centered:
         c = ((j + dt.type(0.5)) * dt.type(a) - dt.type(0.5)).astype(np.float64)
     else:
         c = (j * dt.type(a) + dt.type(b)).astype(np.float64)
+    if post:
+        c = c - float(post)
     valid, i0, i1, f = axis_coords(c, n_src, interp=interp, outside=outside)
     i0 = i0.astype(np.int32)
     i0[~valid] = -1
@@ -194,9 +202,11 @@ def build_tables(out_shape, src_shape, mapping: Mapping, *, interp="linear", out
     out_start = tuple(int(x) for x in out_start)
     if len(out_shape) != 3 or len(src_shape) != 3 or len(out_start) != 3:
         raise ValueError("out_shape, src_shape and out_start must be (Z, Y, X)")
+    core_b, pre, post = (mapping.terms() if hasattr(mapping, "terms")
+                         else (mapping.b, (0, 0, 0), (0, 0, 0)))
     return tuple(
-        axis_table(out_shape[ax], src_shape[ax], mapping.a[ax], mapping.b[ax],
+        axis_table(out_shape[ax], src_shape[ax], mapping.a[ax], core_b[ax],
                    interp=interp3[ax], outside=outside, coord_dtype=coord_dtype, start=out_start[ax],
-                   centered=bool(getattr(mapping, "centered", False)))
+                   centered=bool(getattr(mapping, "centered", False)), pre=pre[ax], post=post[ax])
         for ax in range(3)
     )

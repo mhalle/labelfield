@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **A crop offset no longer changes a nearest pick.** Composing a `Mapping` with a pure integer
+  shift (`a == 1`, integer `b`: a crop offset on the output side or on the source side) records
+  the shift (`Mapping.exact`, `terms()`) instead of folding it into `b`, and the tables apply it as
+  an exact integer step; `centered` survives such a composition. Folding rounded differently at
+  exact half-way coordinates, so a cropped or enveloped restore could pick the other sample from
+  the uncropped one (found by the haversack audit: 7 % of center and 24 % of corner configurations
+  differed somewhere). `a` and `b` read as before; any other composition folds as before.
 - **Clearer failures, and `auto` falls back where a fused kernel cannot run.** `to_labels`
   raises `TypeError` for a mapping that is not a `Mapping`, pointing an `Affine` to
   `Affine.separable` (it raised `AttributeError`). `transparency_mask` raises `ValueError` for

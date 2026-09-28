@@ -117,7 +117,9 @@ def test_centered_flag_composition_and_inverse():
     x = np.array([[0.0, 3.0, 8.0], [4.5, 1.0, 2.0]])
     np.testing.assert_allclose(c.apply(x), (x + 0.5) * 6 / 9 - 0.5, atol=1e-12)
     shift = Mapping((1.0, 1.0, 1.0), (-2.0, 0.0, -1.0))
-    assert not (shift >> c).centered and not c.inverse().centered
+    assert (shift >> c).centered and (c >> shift).centered                        # integer shifts kept
+    assert not (Mapping((1.0, 1.0, 1.0), (0.5, 0.0, 0.0)) >> c).centered          # a fractional one folds
+    assert not c.inverse().centered
     np.testing.assert_allclose((shift >> c).apply(x), c.apply(shift.apply(x)), atol=1e-12)
     np.testing.assert_allclose((c >> c.inverse()).apply(x), x, atol=1e-12)
     assert "centered" in repr(c)
@@ -138,3 +140,47 @@ def test_center_slabs_with_out_start_equal_one_call(interp):
         z1 = min(z0 + 5, out_shape[0])
         lf.to_labels(logits, (z1 - z0, *out_shape[1:]), m, interp=interp, out=out[z0:z1], out_start=(z0, 0, 0))
     np.testing.assert_array_equal(out.numpy(), whole)
+
+
+@pytest.mark.parametrize("rule", ["center", "corner"])
+def test_an_integer_shift_before_is_exactly_an_output_offset(rule):
+    """A crop offset composed in front ( shift >> rule ) decides exactly as the rule does for
+    output index j + s - the same tables as out_start = s, at every tie."""
+    for n_src, n_out in ((6, 57), (70, 131), (9, 23), (19, 37)):
+        m = getattr(Mapping, rule)((n_out, 1, 1), (n_src, 1, 1))
+        for s in (-5, -1, 3, 11):
+            shifted = Mapping((1.0, 1.0, 1.0), (float(s), 0.0, 0.0)) >> m
+            assert shifted.centered == m.centered
+            for interp in ("nearest", "linear"):
+                got = build_tables((n_out, 1, 1), (n_src, 1, 1), shifted, interp=interp)[0]
+                want = build_tables((n_out, 1, 1), (n_src, 1, 1), m, interp=interp, out_start=(s, 0, 0))[0]
+                np.testing.assert_array_equal(got.i0, want.i0)
+                np.testing.assert_array_equal(got.i1, want.i1)
+                np.testing.assert_array_equal(got.f64, want.f64)
+            np.testing.assert_allclose(shifted.apply([[4.0, 0, 0]]), m.apply([[4.0 + s, 0, 0]]), atol=1e-12)
+
+
+@pytest.mark.parametrize("rule", ["center", "corner"])
+def test_an_integer_shift_after_is_exactly_a_source_offset(rule):
+    """A crop of the source ( rule >> shift(-t) ) picks exactly the uncropped rule's sample minus
+    t wherever that sample survives the crop - no tie rounds the other way."""
+    for n_src, n_out in ((6, 57), (70, 131), (19, 37)):
+        m = getattr(Mapping, rule)((n_out, 1, 1), (n_src, 1, 1))
+        full = build_tables((n_out, 1, 1), (n_src, 1, 1), m, interp="nearest")[0]
+        for t in (1, 2, 4):
+            cropped = m >> Mapping((1.0, 1.0, 1.0), (-float(t), 0.0, 0.0))
+            got = build_tables((n_out, 1, 1), (n_src - t, 1, 1), cropped, interp="nearest")[0]
+            keep = (full.i0 >= t) & (got.i0 >= 0)
+            assert keep.any()
+            np.testing.assert_array_equal(got.i0[keep], full.i0[keep] - t)
+            np.testing.assert_array_equal(got.i0 >= 0, full.i0 >= t)             # the crop's own edge
+
+
+def test_folded_offset_is_unchanged_by_the_exact_form():
+    m = Mapping.center((57, 57, 57), (6, 6, 6))
+    shifted = Mapping((1.0, 1.0, 1.0), (3.0, -2.0, 0.0)) >> m >> Mapping((1.0, 1.0, 1.0), (-1.0, 0.0, 4.0))
+    plain = Mapping(m.a, m.b) >> Mapping((1.0, 1.0, 1.0), (0.0, 0.0, 0.0))  # the old folding, by hand
+    a, b = np.asarray(m.a), np.asarray(m.b)
+    np.testing.assert_allclose(shifted.b, a * np.array([3.0, -2.0, 0.0]) + b + np.array([-1.0, 0.0, 4.0]))
+    assert shifted.a == m.a and plain.a == m.a
+    assert "pre=(3, -2, 0)" in repr(shifted) and "post=(1, 0, -4)" in repr(shifted)

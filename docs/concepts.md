@@ -72,9 +72,11 @@ with `mode="nearest"`, which uses a different rounding rule; it matches
 
 Mappings compose with `>>` (`m1 >> m2` applies `m1` first), for example
 `Mapping.between(roi, image) >> Mapping.center(image.shape, model.shape)` to go from a region
-of interest through the image grid to the model grid. Composition drops the `centered` flag
-that `Mapping.center` sets (see [Ties](#ties-in-nearest-interpolation)); for a region of
-interest on the image lattice, `out_start` avoids this (next section).
+of interest through the image grid to the model grid. Composing with a pure integer shift
+(`a == 1`, integer `b`, such as a crop offset on either side) keeps the mapping's exact form:
+the shift is recorded (`Mapping.exact`) and applied as an exact integer step, and the
+`centered` flag that `Mapping.center` sets survives (see [Ties](#ties-in-nearest-interpolation)).
+Any other composition folds into `a * x + b` and drops the flag.
 
 ### Physical grids
 

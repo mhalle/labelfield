@@ -30,8 +30,18 @@ class Mapping:
         scikit-image compute it. The two forms are equal in exact arithmetic but can round
         differently in floating point when the coordinate lies exactly half-way between two
         samples, where a nearest-neighbor pick would then choose the other sample. Requires
-        ``b == a / 2 - 1/2`` (``ValueError`` otherwise). Composing with the identity keeps
-        the flag; any other composition, and :meth:`inverse`, drop it.
+        ``b == a / 2 - 1/2`` (``ValueError`` otherwise). Composing with the identity or with
+        an integer shift (below) keeps the flag; any other composition, and :meth:`inverse`,
+        drop it.
+    exact : tuple or None, default None
+        Set by composition; normally not passed by hand. ``(core_b, pre, post)``: the map is
+        ``core(x + pre) - post``, where ``core`` is ``a * x + core_b`` (or the centered form)
+        and ``pre`` and ``post`` are integer shifts, one per axis. :func:`~labelfield.tables.axis_table`
+        evaluates it in that form, so the integer steps are exact. Composing a mapping with a
+        pure integer shift (``a == 1``, integer ``b``) - a crop offset on either side - records
+        the shift here instead of folding it into ``b``, which would round differently at an
+        exact half-way coordinate. ``b`` is always the folded offset (``a * pre + core_b -
+        post``), so ``apply`` and readers of ``b`` see the same map.
 
     Mappings compose with ``>>``: ``m1 >> m2`` applies ``m1`` first, then ``m2``. Instances
     are frozen and compare by value. Raises ``ValueError`` if ``a`` has a negative entry.
@@ -40,6 +50,7 @@ class Mapping:
     a: Vec3
     b: Vec3 = (0.0, 0.0, 0.0)
     centered: bool = False
+    exact: tuple = None
 
     def __post_init__(self):
         object.__setattr__(self, "a", _vec3(self.a, "a"))
@@ -47,8 +58,34 @@ class Mapping:
         object.__setattr__(self, "centered", bool(self.centered))
         if any(x < 0 for x in self.a):
             raise ValueError(f"a must be >= 0 on every axis (flips belong to the frame); got {self.a}")
-        if self.centered and not np.allclose(self.b, 0.5 * np.asarray(self.a) - 0.5, rtol=0, atol=1e-9):
-            raise ValueError(f"a centered mapping has b = a / 2 - 1/2; got a={self.a}, b={self.b}")
+        if self.exact is not None:
+            core_b, pre, post = self.exact
+            core_b = _vec3(core_b, "exact core_b")
+            pre = tuple(int(v) for v in pre)
+            post = tuple(int(v) for v in post)
+            if len(pre) != 3 or len(post) != 3:
+                raise ValueError("exact shifts must have 3 entries (Z, Y, X)")
+            object.__setattr__(self, "exact", (core_b, pre, post))
+        core_b = self.terms()[0]
+        if self.centered and not np.allclose(core_b, 0.5 * np.asarray(self.a) - 0.5, rtol=0, atol=1e-9):
+            raise ValueError(f"a centered mapping has b = a / 2 - 1/2; got a={self.a}, b={core_b}")
+
+    def terms(self):
+        """``(core_b, pre, post)`` - the form :func:`~labelfield.tables.axis_table` evaluates:
+        ``core(x + pre) - post``. Without integer shifts recorded, ``(b, (0, 0, 0), (0, 0, 0))``."""
+        if self.exact is None:
+            return self.b, (0, 0, 0), (0, 0, 0)
+        return self.exact
+
+    @property
+    def integer_shift(self):
+        """The integer offsets if this mapping is a pure integer shift (``a == 1``, integer
+        ``b``, nothing else recorded), else None."""
+        if self.a != (1.0, 1.0, 1.0) or self.centered or self.exact is not None:
+            return None
+        if not all(float(v).is_integer() for v in self.b):
+            return None
+        return tuple(int(v) for v in self.b)
 
     @property
     def is_identity(self) -> bool:
@@ -67,6 +104,18 @@ class Mapping:
             return other
         if other.is_identity:
             return self
+        shift = other.integer_shift
+        if shift is not None:                                # a shift after: record it exactly
+            core_b, pre, post = self.terms()
+            new_post = tuple(p - s for p, s in zip(post, shift))
+            return Mapping(self.a, tuple(np.asarray(self.b) + np.asarray(shift, dtype=np.float64)),
+                           centered=self.centered, exact=(core_b, pre, new_post))
+        shift = self.integer_shift
+        if shift is not None:                                # a shift before: likewise
+            core_b, pre, post = other.terms()
+            new_pre = tuple(p + s for p, s in zip(pre, shift))
+            b = np.asarray(other.a) * np.asarray(shift, dtype=np.float64) + np.asarray(other.b)
+            return Mapping(other.a, tuple(b), centered=other.centered, exact=(core_b, new_pre, post))
         a1, b1 = np.asarray(self.a), np.asarray(self.b)
         a2, b2 = np.asarray(other.a), np.asarray(other.b)
         return Mapping(tuple(a2 * a1), tuple(a2 * b1 + b2))
@@ -154,7 +203,10 @@ class Mapping:
     def __repr__(self) -> str:
         a = ", ".join(f"{x:g}" for x in self.a)
         b = ", ".join(f"{x:g}" for x in self.b)
-        return f"Mapping(a=({a}), b=({b}){', centered' if self.centered else ''})"
+        shifts = ""
+        if self.exact is not None and (any(self.exact[1]) or any(self.exact[2])):
+            shifts = f", pre={self.exact[1]}, post={self.exact[2]}"
+        return f"Mapping(a=({a}), b=({b}){', centered' if self.centered else ''}{shifts})"
 
 
 #: Off-diagonal terms of an :class:`Affine` smaller than this fraction of its largest diagonal
