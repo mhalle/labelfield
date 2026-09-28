@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Importing the backends no longer keeps the caller alive.** On a machine without triton, the
+  failed import was stored as an exception whose traceback held every frame live at the first
+  import, so the first caller's arrays, tensors and models stayed referenced for the life of the
+  process (found in TotalSegmentator: about 250 MB after a `--fast` call, GBs for `total` on a
+  large CT). Only the message is kept now.
 - **A crop offset no longer changes a nearest pick.** Composing a `Mapping` with a pure integer
   shift (`a == 1`, integer `b`: a crop offset on the output side or on the source side) records
   the shift (`Mapping.exact`, `terms()`) instead of folding it into `b`, and the tables apply it as
