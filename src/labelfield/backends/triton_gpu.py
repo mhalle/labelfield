@@ -2,8 +2,7 @@
 
 The same shape as the Metal backend - one program per block of output voxels, gathering the 8
 corners and keeping a running decision over K, so nothing K-channel-sized is ever materialized.
-Measured on an NVIDIA A10 against the best pure-torch alternative: 3.5-4.7x faster
-(`docs/backend-decision.md`), exact against the float64 reference on the first run.
+Measured on an NVIDIA A10 at 3.5-4.7x the speed of the best pure-torch alternative.
 
 The kernel lives in this module rather than being built from a string because ``@triton.jit``
 recovers its source with ``inspect``.
@@ -53,9 +52,8 @@ def cannot_take(logits_shape, out_shape) -> str | None:
     """Why the kernel cannot address this field, or None if it can.
 
     ``backends.select`` asks this before "auto" takes the kernel, and ``run`` refuses on it, so
-    the two cannot disagree. K itself is unlimited: the channel base is 64-bit (2026-09-11,
-    after a K=30 field of 2.27e9 logits was refused). A channel of 2^31 voxels is a 1290^3 model
-    grid; an output of 2^31 is a whole body at about 0.5 mm.
+    the two cannot disagree. K itself is unlimited: the channel base is 64-bit. A channel of
+    2^31 voxels is a 1290^3 model grid; an output of 2^31 is a whole body at about 0.5 mm.
     """
     _, Zs, Ys, Xs = (int(v) for v in logits_shape)
     Za, Ya, Xa = (int(v) for v in out_shape)

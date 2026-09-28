@@ -1,6 +1,6 @@
-"""Portable torch backend: index_select / lerp per output z-plane, with a
-cache of x/y-interpolated source planes. Runs on any device; this is the
-reference the fused kernels are checked against."""
+"""Portable torch backend: index_select and linear blends per output Z plane, with a cache of
+X/Y-interpolated source planes. Runs on any torch device, computing in float32; it is also what
+"auto" falls back to when a fused kernel cannot address a field."""
 from __future__ import annotations
 
 import numpy as np

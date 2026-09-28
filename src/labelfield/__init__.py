@@ -1,14 +1,17 @@
-"""labelfield: a per-class logit field to labels on any grid, fused on the GPU.
+"""labelfield: convert a per-class logit field on a model grid into a label map on any grid.
 
-For every voxel of a caller-chosen grid, interpolate the K logits from the model grid and
-decide - argmax, or per-region threshold - in one pass, painting into a shared buffer so a
-multi-model task composites without anything K-channel-sized ever existing at the output
-resolution. Metal (Apple GPUs) and Triton (CUDA) kernels, and a torch backend that runs
-anywhere, all consuming the same host-built per-axis tables.
+For every voxel of a caller-chosen output grid, :func:`to_labels` interpolates the K logits
+from the model grid and decides a label (argmax, or per-region threshold) in one pass,
+optionally compositing into an existing label map so that several models can write into one
+buffer. The K interpolated channels are never materialized at output resolution. Backends:
+fused kernels for Apple GPUs (Metal) and CUDA (Triton), and a portable torch backend. All use
+the same per-axis tables computed on the host.
 
-The geometry (:class:`Grid`, :class:`Mapping`, :func:`build_tables`) and the float64
-:mod:`reference` need only numpy; :func:`to_labels` and the backends need torch and are
-imported on first use.
+The geometry (:class:`Grid`, :class:`Mapping`, :class:`Affine`, :func:`build_tables`,
+:func:`axis_table`, :func:`axis_coords`) and the float64 :mod:`reference` need only numpy.
+:func:`to_labels`, :func:`resample_argmax`, :func:`resample_paint`,
+:func:`available_backends`, :func:`transparency_mask` and :mod:`backends` need torch, which is
+imported on first access to one of them. Axis order is (Z, Y, X) throughout.
 """
 from __future__ import annotations
 

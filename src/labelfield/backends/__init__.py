@@ -1,11 +1,16 @@
-"""Backend registry. Every backend exposes ``available()`` and
-``run(logits, out, tables, lut, *, mode, paint, background, threshold, **opts)``
-writing labels into ``out`` in place. A fused one also exposes
-``cannot_take(logits_shape, out_shape)``: why its kernel cannot address a field, or None.
+"""Backend registry and selection.
 
-``lut`` is the labels as given. ``skip`` (optional) is a uint8 per channel, 1 = an argmax paint
-leaves the voxel untouched when that channel wins (:func:`labelfield.labels.transparency_mask`);
-without it, channel 0 is the transparent one."""
+Backends: "torch" (:mod:`.torch_gather`, any device), "metal" (:mod:`.metal`, Apple GPUs,
+torch >= 2.7) and "triton" (:mod:`.triton_gpu`, CUDA, needs the ``triton`` package).
+
+Each backend module exposes ``available()`` and
+``run(logits, out, tables, lut, *, mode, paint, background, threshold, skip=None, **opts)``,
+which writes labels into ``out`` in place. The fused backends also expose
+``cannot_take(logits_shape, out_shape)``, which returns the reason the kernel cannot address a
+field, or None. ``lut`` is the label table as given. ``skip`` is an optional uint8 per channel,
+1 meaning that an argmax paint leaves the voxel unchanged when that channel wins
+(:func:`labelfield.transparency_mask`); without it, channel 0 is transparent. Most callers use
+:func:`labelfield.to_labels` instead of calling ``run``."""
 from __future__ import annotations
 
 from typing import NamedTuple
@@ -38,13 +43,19 @@ class Choice(NamedTuple):
 
 
 def select(name: str, device: torch.device, logits_shape, out_shape) -> Choice:
-    """The backend that restores a ``(K, Zs, Ys, Xs)`` field onto ``out_shape`` on ``device``.
+    """Choose the backend for a ``(K, Zs, Ys, Xs)`` field on ``device`` and an output of
+    ``out_shape`` (Z, Y, X). Returns a ``Choice(name, module, fallback)``.
 
-    "auto" asks the fused kernel whether it can address the field before taking it, and
-    otherwise takes the torch backend, which has no offset limit, saying why. Until 2026-09-11
-    it went by device type alone, and the Triton kernel's refusal of a 2.27e9-logit field (a
-    K=30 model on a whole-body CT with no envelope) went straight through ``segment``. A
-    backend asked for by name is never replaced: it raises, naming the one that would run.
+    ``name="auto"``: on an MPS device "metal", on a CUDA device "triton", if that backend is
+    available and its ``cannot_take`` accepts the shapes; otherwise "torch". ``fallback`` is
+    None, or a message saying why an available fused kernel was not used (a model-grid channel
+    of 2^31 voxels or more for either kernel; for Triton also an output of 2^31 voxels or
+    more). "auto" decides from device and shapes only; it does not consider dtype or
+    contiguity, which the chosen backend checks when it runs.
+
+    A backend named explicitly is never replaced: ``ValueError`` if the name is unknown, if
+    the device is not the backend's ("metal" needs MPS, "triton" needs CUDA), if Triton is
+    unavailable, or if the kernel cannot address the field.
     """
     shapes = (tuple(int(v) for v in logits_shape), tuple(int(v) for v in out_shape))
     if name == "auto":
@@ -71,4 +82,5 @@ def select(name: str, device: torch.device, logits_shape, out_shape) -> Choice:
 
 
 def available_backends() -> list[str]:
+    """Names of the backends whose ``available()`` is true in this process."""
     return [n for n, m in BACKENDS.items() if m.available()]

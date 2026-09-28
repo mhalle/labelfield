@@ -1,4 +1,9 @@
-"""Float64 numpy reference - tiny shapes only. Defines what the kernels must compute."""
+"""Float64 numpy reference implementation of the interpolation and decision.
+
+It defines what the backends compute and is used to test them. It needs only numpy, is not
+optimized, and materializes all K channels at output resolution, so use it for small shapes
+only. Its inputs are the tables from :func:`labelfield.build_tables`.
+"""
 from __future__ import annotations
 
 import numpy as np
@@ -12,11 +17,16 @@ def _gather_idx(t: AxisTable):
 
 
 def interpolate(logits, tables) -> tuple[np.ndarray, np.ndarray]:
-    """All K channels on the output grid: ``(values (K, Za, Ya, Xa) float64, valid (Za, Ya, Xa) bool)``.
+    """Interpolate all K channels onto the output grid.
 
-    Same blend order as the kernels: x, then y, then z; weights ``(1 - f) * v0 + f * v1``,
-    with the float64 weights - the kernels round them to float32, which moves
-    values by ~1e-7 and can flip genuinely tied decisions.
+    ``logits`` is array-like (K, Zs, Ys, Xs); ``tables`` the (Z, Y, X) tables from
+    :func:`~labelfield.tables.build_tables`. Returns ``(values, valid)``: ``values`` float64
+    (K, Za, Ya, Xa), and ``valid`` bool (Za, Ya, Xa), False where the voxel is outside the
+    model grid (``values`` there is computed from clamped indices and is meaningless).
+
+    The blend order is the backends': X, then Y, then Z, each as ``(1 - f) * v0 + f * v1``, but
+    in float64 with the float64 weights. The backends use float32, which changes values by
+    about 1e-7 relative and can change decisions where two channels are nearly tied.
     """
     lg = np.asarray(logits, dtype=np.float64)
     tz, ty, tx = tables
@@ -44,7 +54,13 @@ def interpolate(logits, tables) -> tuple[np.ndarray, np.ndarray]:
 def decide(values: np.ndarray, valid: np.ndarray, *, lut=None, mode: str = "argmax", threshold: float = 0.0,
            background: int = 0, paint: bool = False, transparent: str = "background",
            out: np.ndarray | None = None) -> np.ndarray:
-    """Turn interpolated values into labels, with the kernels' exact semantics."""
+    """Decide labels from interpolated ``values`` (K, Za, Ya, Xa) and ``valid`` (Za, Ya, Xa), with
+    the same semantics as :func:`labelfield.to_labels` (see there for ``lut``, ``mode``,
+    ``threshold``, ``background``, ``paint`` and ``transparent``).
+
+    Returns an int64 array (Za, Ya, Xa), or ``out`` (a numpy array, written in place) if given.
+    ``paint=True`` requires ``out``. Raises ``ValueError`` for an unknown ``mode``. Unlike
+    ``to_labels``, it does not validate ``transparent`` or the labels."""
     K = values.shape[0]
     lut = np.arange(K, dtype=np.int64) if lut is None else np.asarray(lut, dtype=np.int64).reshape(-1)
     if mode == "argmax":
@@ -75,13 +91,16 @@ def decide(values: np.ndarray, valid: np.ndarray, *, lut=None, mode: str = "argm
 
 
 def labels(logits, tables, **kw) -> np.ndarray:
+    """``decide(*interpolate(logits, tables), **kw)``."""
     values, valid = interpolate(logits, tables)
     return decide(values, valid, **kw)
 
 
 def margins(values: np.ndarray) -> np.ndarray:
-    """top-1 minus top-2 per output voxel; small margins are ties where
-    float32 backends may legitimately disagree."""
+    """Per voxel, the largest channel value minus the second largest: array (Za, Ya, Xa).
+
+    Where the margin is small (below about 1e-4 for typical logits), float32 backends may
+    choose a different argmax than the float64 reference. Infinite when K < 2."""
     if values.shape[0] < 2:
         return np.full(values.shape[1:], np.inf)
     part = np.partition(values, -2, axis=0)
