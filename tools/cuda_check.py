@@ -30,6 +30,9 @@ image = (
                  "scikit-image>=0.19")
     .add_local_dir(str(ROOT / "src" / "labelfield"), remote_path="/root/pkg/labelfield")
     .add_local_dir(str(ROOT / "tests"), remote_path="/root/tests")
+    # tests/test_docs_examples.py runs the documentation's examples
+    .add_local_file(str(ROOT / "README.md"), remote_path="/root/README.md")
+    .add_local_dir(str(ROOT / "docs"), remote_path="/root/docs")
 )
 
 app = modal.App("labelfield-cuda-check", image=image)
