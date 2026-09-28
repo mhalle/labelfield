@@ -2,7 +2,16 @@
 
 ## Unreleased
 
-Documentation only; no change to behavior or signatures.
+- **Clearer failures, and `auto` falls back where a fused kernel cannot run.** `to_labels`
+  raises `TypeError` for a mapping that is not a `Mapping`, pointing an `Affine` to
+  `Affine.separable` (it raised `AttributeError`). `transparency_mask` raises `ValueError` for
+  an unknown `transparent` value (it treated any value as `"zero"`). With `backend="auto"`,
+  logits of a dtype the fused kernel does not read (float64 on either, bfloat16 on Metal) or a
+  non-contiguous `out` now use the torch backend with a `RuntimeWarning`, as an oversized field
+  already did; before, they raised. `backends.select` takes optional `logits_dtype` and
+  `out_contiguous` for this. A backend named explicitly still raises.
+
+Documentation (no change to behavior or signatures):
 
 - README rewritten for new users: purpose and limits, installation and extras, core concepts
   (logit field, model and output grids, choosing a `Mapping`, label table, paint and

@@ -48,10 +48,12 @@ Returns `out`, or a new tensor, of the output shape on `logits.device`.
 
 Raises `ValueError` for malformed shapes, unknown option values, a `lut` of the wrong length,
 negative labels, labels that do not fit the output dtype, `out` of the wrong shape or device,
-an explicitly named backend that cannot run, or a non-contiguous `out` on a fused backend.
-Raises `TypeError` for non-floating logits, an `out` that is not uint8/uint16, or a logits
-dtype the fused backend does not support. Emits `RuntimeWarning` when `backend="auto"` falls
-back from an available fused kernel to torch.
+an explicitly named backend that cannot run, or a non-contiguous `out` on an explicitly named
+fused backend. Raises `TypeError` for a `mapping` that is not a `Mapping` (an `Affine` included:
+use `Affine.separable`), non-floating logits, an `out` that is not uint8/uint16, or a logits dtype
+an explicitly named fused backend does not support. Emits `RuntimeWarning` when `backend="auto"`
+falls back from an available fused kernel to torch (a field too large for it, a logits dtype it
+does not read, or a non-contiguous `out`).
 
 ## resample_argmax, resample_paint
 

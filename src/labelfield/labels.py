@@ -35,9 +35,11 @@ def transparency_mask(lut, *, transparent: str = "background") -> np.ndarray:
     ``lut`` is the label table (K ints). With ``transparent="background"`` only channel 0 is
     transparent; with ``"zero"`` every channel whose label is 0 is (TotalSegmentator's
     compositing rule). :func:`to_labels` computes this and passes it to the backend; call it
-    directly only when driving a backend's ``run`` yourself. Values other than "background"
-    are treated as "zero" (no validation here; :func:`to_labels` validates).
+    directly only when driving a backend's ``run`` yourself. Any other value raises
+    ``ValueError``.
     """
+    if transparent not in TRANSPARENT:
+        raise ValueError(f"transparent must be one of {TRANSPARENT}; got {transparent!r}")
     lut = np.asarray(lut, dtype=np.int64).reshape(-1)
     if transparent == "background":
         mask = np.zeros(lut.shape[0], dtype=np.uint8)
@@ -152,11 +154,18 @@ def to_labels(logits, grid, mapping: Mapping, *, interp="linear", outside: str =
         ``outside``; ``lut`` length not K; a negative label; ``transparent`` misused; ``out``
         of the wrong shape or device; a label that does not fit the output dtype (or needs
         uint16 on torch < 2.3); an explicitly named backend that is unavailable, on the wrong
-        device, or cannot address the field; a non-contiguous ``out`` on a fused backend.
+        device, or cannot address the field; a non-contiguous ``out`` on an explicitly named
+        fused backend.
     TypeError
-        ``logits`` not floating point; ``out`` not uint8/uint16; a logits dtype the chosen
-        fused backend does not support.
+        ``mapping`` not a :class:`Mapping` (an :class:`Affine` included: use its ``separable``);
+        ``logits`` not floating point; ``out`` not uint8/uint16; a logits dtype an explicitly
+        named fused backend does not support. ("auto" uses the torch backend instead for the
+        dtype and contiguity cases, with a ``RuntimeWarning``.)
     """
+    if not isinstance(mapping, Mapping):
+        hint = (" (an Affine: use aff.separable, which is None when the grids do not line up)"
+                if hasattr(mapping, "separable") else "")
+        raise TypeError(f"mapping must be a labelfield.Mapping; got {type(mapping).__name__}{hint}")
     lg = _as_torch(logits)
     if lg.ndim != 4:
         raise ValueError(f"logits must be (K, Z, Y, X); got shape {tuple(lg.shape)}")
@@ -201,7 +210,8 @@ def to_labels(logits, grid, mapping: Mapping, *, interp="linear", outside: str =
     if max_label > (255 if out.dtype == torch.uint8 else 65535):
         raise ValueError(f"label {max_label} does not fit {out.dtype}")
 
-    choice = backends.select(backend, lg.device, tuple(lg.shape), out_shape)
+    choice = backends.select(backend, lg.device, tuple(lg.shape), out_shape, logits_dtype=lg.dtype,
+                             out_contiguous=out.is_contiguous())
     if choice.fallback:
         # without a warning a caller would not learn that it got the slower backend
         warnings.warn(f"labelfield.to_labels: {choice.fallback}; restoring with the torch backend, "

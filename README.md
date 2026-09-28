@@ -189,8 +189,9 @@ and issues a `RuntimeWarning`. Naming a backend explicitly (`backend="metal"`, `
 `lf.available_backends()` lists the backends usable in the current process.
 
 The fused backends need a contiguous `out` and support fewer logit dtypes (Metal: float32,
-float16; Triton: float32, float16, bfloat16). `auto` does not fall back on these; it raises.
-Cast the logits, or pass `backend="torch"`.
+float16; Triton: float32, float16, bfloat16). For logits of another dtype, or a non-contiguous
+`out` (a view such as `big[:, y0:y1]`), `auto` uses `torch` and issues a `RuntimeWarning`; a
+backend named explicitly raises instead.
 
 ## Limits and edge rules
 

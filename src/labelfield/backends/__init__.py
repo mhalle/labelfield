@@ -42,7 +42,13 @@ class Choice(NamedTuple):
     fallback: str | None = None
 
 
-def select(name: str, device: torch.device, logits_shape, out_shape) -> Choice:
+#: Logit dtypes each fused kernel reads; the torch backend reads any floating dtype.
+FUSED_DTYPES = {"metal": (torch.float32, torch.float16),
+                "triton": (torch.float32, torch.float16, torch.bfloat16)}
+
+
+def select(name: str, device: torch.device, logits_shape, out_shape, *, logits_dtype=None,
+           out_contiguous: bool = True) -> Choice:
     """Choose the backend for a ``(K, Zs, Ys, Xs)`` field on ``device`` and an output of
     ``out_shape`` (Z, Y, X). Returns a ``Choice(name, module, fallback)``.
 
@@ -50,8 +56,10 @@ def select(name: str, device: torch.device, logits_shape, out_shape) -> Choice:
     available and its ``cannot_take`` accepts the shapes; otherwise "torch". ``fallback`` is
     None, or a message saying why an available fused kernel was not used (a model-grid channel
     of 2^31 voxels or more for either kernel; for Triton also an output of 2^31 voxels or
-    more). "auto" decides from device and shapes only; it does not consider dtype or
-    contiguity, which the chosen backend checks when it runs.
+    more; a ``logits_dtype`` the kernel does not read, see :data:`FUSED_DTYPES`; or an output
+    buffer that is not contiguous, when the caller says so with ``out_contiguous=False``).
+    ``logits_dtype`` and ``out_contiguous`` are optional: without them "auto" decides from
+    device and shapes only, and the chosen backend checks dtype and contiguity when it runs.
 
     A backend named explicitly is never replaced: ``ValueError`` if the name is unknown, if
     the device is not the backend's ("metal" needs MPS, "triton" needs CUDA), if Triton is
@@ -63,6 +71,10 @@ def select(name: str, device: torch.device, logits_shape, out_shape) -> Choice:
         if fused is None or not BACKENDS[fused].available():
             return Choice("torch", torch_gather)
         why = BACKENDS[fused].cannot_take(*shapes)
+        if why is None and logits_dtype is not None and logits_dtype not in FUSED_DTYPES[fused]:
+            why = f"it does not read {logits_dtype} logits"
+        if why is None and not out_contiguous:
+            why = "the output buffer is not contiguous"
         if why is None:
             return Choice(fused, BACKENDS[fused])
         return Choice("torch", torch_gather, f"the {fused} kernel cannot take this field: {why}")
