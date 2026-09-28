@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.3 - 2026-09-28
 
 - **Importing the backends no longer keeps the caller alive.** On a machine without triton, the
   failed import was stored as an exception whose traceback held every frame live at the first
