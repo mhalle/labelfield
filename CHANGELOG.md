@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.4 - 2026-10-02
 
 - **The torch backend's argmax is much faster where most of the field is one class** (the CPU,
   and CUDA without Triton, e.g. Windows). An interpolated value is a weighted average of its

@@ -42,7 +42,7 @@ It is not suitable when:
 
 labelfield is distributed from GitHub only; it is not on PyPI. Install a tagged release:
 
-    pip install "labelfield[torch] @ git+https://github.com/mhalle/labelfield.git@v0.1.3"
+    pip install "labelfield[torch] @ git+https://github.com/mhalle/labelfield.git@v0.1.4"
 
 | Extra | Installs | Needed for |
 |---|---|---|

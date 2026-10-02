@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "labelfield"
-version = "0.1.3"
+version = "0.1.4"
 description = "Convert a per-class logit field on a model grid into a label map on any grid, with interpolation, argmax and multi-model compositing fused on the GPU"
 license = "Apache-2.0"
 requires-python = ">=3.9"
