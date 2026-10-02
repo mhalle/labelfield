@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **The torch backend's argmax is much faster where most of the field is one class** (the CPU,
+  and CUDA without Triton, e.g. Windows). An interpolated value is a weighted average of its
+  model cell's corners, so per cell the channels whose largest corner value lies below another
+  channel's smallest cannot win; a cell left with one candidate gets that label without
+  interpolating, and the other voxels are blended over their own candidates only. The labels
+  are the dense path's bit for bit: the same blend arithmetic in the same order, and the same
+  first-maximum rule at ties (tests compare the two, and 400 random configurations agreed).
+  TotalSegmentator `--fast` on a 768x768x709 CT, 8 CPU cores: the restore went from 162 s to
+  23 s, the run from 189 s to 58 s. Region mode and non-finite logits keep the dense path;
+  `torch_gather.run(..., prune=False)` forces it.
+
 ## 0.1.3 - 2026-09-28
 
 - **Importing the backends no longer keeps the caller alive.** On a machine without triton, the
