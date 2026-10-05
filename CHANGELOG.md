@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- **The torch backend no longer needs GBs of temporary memory to start.** Before choosing its
+  argmax path it checked the logits with `torch.isfinite(logits).all()`, which on the CPU peaks at
+  2.5x the size of a float16 field (a float32 upcast and a bool mask): 1.1 to 2.4 GB for
+  TotalSegmentator-sized fields, more than the restore itself, and the same on a CUDA device
+  without Triton (e.g. Windows), where it is GPU memory. It now checks a few Z planes at a time
+  (`torch_gather.finite`), with one device sync. Peak memory beyond the output for real
+  TotalSegmentator logits, before -> after:
+
+  | | M2 CPU | Linux CPU | CUDA (T4), torch backend |
+  |---|---|---|---|
+  | 25 classes, 512x512x165 | 1.35 -> 0.17 GB | | |
+  | 25 classes, 512x512x321 | 1.84 -> 0.24 GB | 1.84 -> 0.15 GB | 1.84 -> 0.08 GB |
+  | 118 classes, 512x512x321 | 1.09 -> 0.26 GB | 1.09 -> 0.14 GB | 1.09 -> 0.09 GB |
+  | 118 classes, 768x768x709 | 1.76 -> 0.32 GB | | |
+
+  Labels and speed unchanged (labels compared voxel for voxel on all of these). The Metal and
+  Triton kernels never ran this check.
+
 ## 0.1.4 - 2026-10-02
 
 - **The torch backend's argmax is much faster where most of the field is one class** (the CPU,

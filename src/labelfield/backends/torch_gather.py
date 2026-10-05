@@ -43,13 +43,29 @@ def run(logits: torch.Tensor, out: torch.Tensor, tables, lut, *, mode: str, pain
     """Restore ``logits`` into ``out``. ``prune`` (default: argmax mode with finite logits) takes
     the argmax path; ``False`` forces the dense path, which the tests compare it with."""
     if prune is None:
-        prune = mode == "argmax" and bool(torch.isfinite(logits).all())
+        prune = mode == "argmax" and finite(logits)
     if prune:
         if mode != "argmax":
             raise ValueError("prune=True needs mode='argmax'")
         return _run_argmax_pruned(logits, out, tables, lut, paint=paint, background=background, skip=skip)
     return _run_dense(logits, out, tables, lut, mode=mode, paint=paint, background=background,
                       threshold=threshold, skip=skip)
+
+
+#: Logits per ``isfinite`` call in :func:`finite` (whole Z planes, at least one).
+FINITE_CHUNK = 1 << 22
+
+
+def finite(logits: torch.Tensor) -> bool:
+    """Whether every logit is finite, checked a few Z planes at a time: ``isfinite`` of the whole
+    field peaks on the CPU at 2.5x the size of a float16 field (a float32 upcast and a bool mask),
+    GBs for a large one. (``amax``/``amin`` would need no temporary, but on MPS with torch 2.1
+    they do not propagate NaN.)"""
+    step = max(1, FINITE_CHUNK // max(1, logits[:, :1].numel()))
+    ok = torch.ones((), dtype=torch.bool, device=logits.device)
+    for z in range(0, logits.shape[1], step):
+        ok &= torch.isfinite(logits[:, z:z + step]).all()        # on the device: one sync, below
+    return bool(ok)
 
 
 def _pairs(i0: torch.Tensor, i1: torch.Tensor, n: int):

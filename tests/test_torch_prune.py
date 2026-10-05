@@ -68,6 +68,20 @@ def test_paint_lut_skip_slab_and_fp16():
     assert not torch.equal(dense, prefill)
 
 
+@pytest.mark.parametrize("dtype", [torch.float16, torch.float32])
+@pytest.mark.parametrize("bad", [None, float("nan"), float("inf"), float("-inf")])
+def test_finite_finds_every_non_finite_value(device, dtype, bad, monkeypatch):
+    """Checked in slabs of Z planes (a small chunk here forces several), a NaN or infinity is found
+    wherever it is: first, middle and last plane."""
+    monkeypatch.setattr(torch_gather, "FINITE_CHUNK", 3 * 4 * 5 * 2)            # two planes per slab
+    for where in [(0, 0, 0, 0), (1, 3, 2, 4), (2, 6, 3, 4)]:
+        logits = torch.zeros((3, 7, 4, 5), dtype=dtype, device=device)
+        if bad is not None:
+            logits[where] = bad
+        assert torch_gather.finite(logits) is (bad is None)
+        assert torch_gather.finite(logits) == bool(torch.isfinite(logits).all())
+
+
 def test_non_finite_logits_take_the_dense_path():
     logits = smooth_logits(4, (5, 5, 5), seed=0)
     logits[1, 2, 2, 2] = float("nan")
