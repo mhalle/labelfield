@@ -20,7 +20,7 @@ from .grid import Grid
 from .mapping import Affine, Mapping
 from .tables import AxisTable, axis_coords, axis_table, build_tables
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 
 _TORCH_NAMES = {"to_labels", "resample_argmax", "resample_paint", "available_backends", "transparency_mask"}
 

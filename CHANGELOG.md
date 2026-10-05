@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 - 2026-10-05
 
 - **The torch backend no longer needs GBs of temporary memory to start.** Before choosing its
   argmax path it checked the logits with `torch.isfinite(logits).all()`, which on the CPU peaks at
