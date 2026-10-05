@@ -10,6 +10,9 @@ pytest.importorskip("torch")
 SCRIPT = r"""
 import gc, sys, weakref
 sys.modules["triton"] = None                  # as on a box without triton: the import fails
+# torch first, outside first_call: torch 2.1 (not 2.14) keeps a failed pynvml import as
+# torch.cuda._PYNVML_ERR, whose traceback holds whichever frame first imported torch
+import torch
 
 class Big: pass
 
